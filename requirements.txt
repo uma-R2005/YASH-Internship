@@ -1,0 +1,15 @@
+streamlit
+python-dotenv
+pymupdf
+sentence-transformers
+faiss-cpu
+huggingface_hub
+transformers
+accelerate
+einops
+llama-index
+llama-index-llms-huggingface
+llama-index-embeddings-huggingface
+llama-index-core
+bitsandbytes
+llama-index-postprocessor-sbert-rerank
