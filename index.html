@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SearchLab — E-commerce Search Engine</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="css/styles.css"/>
+  <style>
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.8);
+      backdrop-filter: blur(6px);
+      z-index: 100;
+      display: flex; align-items: center; justify-content: center;
+      padding: 2rem;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.3s;
+    }
+    .modal-overlay.open { opacity: 1; pointer-events: all; }
+    .modal {
+      background: #12121a;
+      border: 1px solid #2a2a3a;
+      border-radius: 20px;
+      width: 100%; max-width: 720px;
+      max-height: 85vh; overflow-y: auto;
+      padding: 2rem;
+      transform: translateY(20px);
+      transition: transform 0.3s;
+      position: relative;
+    }
+    .modal-overlay.open .modal { transform: translateY(0); }
+    .modal-header {
+      display: flex; align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 1.5rem; gap: 1rem;
+    }
+    .modal-product-info { flex: 1; }
+    .modal-emoji {
+      font-size: 2.5rem;
+      background: #1a1a26; border-radius: 12px;
+      width: 64px; height: 64px;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 0.75rem;
+    }
+    .modal-title {
+      font-family: 'Syne', sans-serif;
+      font-size: 1.3rem; font-weight: 800;
+      margin-bottom: 0.25rem;
+    }
+    .modal-rank {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.75rem; color: #f0e040;
+      text-transform: uppercase; letter-spacing: 0.1em;
+    }
+    .modal-close {
+      background: #1a1a26; border: 1px solid #2a2a3a;
+      color: #e8e8f0; border-radius: 8px;
+      width: 36px; height: 36px;
+      cursor: pointer; font-size: 1.1rem;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; transition: background 0.2s;
+    }
+    .modal-close:hover { background: #2a2a3a; }
+    .modal-scores {
+      display: grid; grid-template-columns: repeat(3,1fr);
+      gap: 0.75rem; margin-bottom: 1.5rem;
+    }
+    .modal-score-card {
+      background: #1a1a26; border-radius: 10px;
+      padding: 0.875rem; text-align: center;
+    }
+    .modal-score-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.62rem; text-transform: uppercase;
+      letter-spacing: 0.08em; margin-bottom: 0.3rem;
+    }
+    .modal-score-label.kw  { color: #ff6b35; }
+    .modal-score-label.sem { color: #00d4aa; }
+    .modal-score-label.hyb { color: #a855f7; }
+    .modal-score-val {
+      font-family: 'Syne', sans-serif;
+      font-weight: 700; font-size: 1.1rem;
+    }
+    .modal-score-rank {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.65rem; color: #6b6b85; margin-top: 0.2rem;
+    }
+    .modal-explanation {
+      background: #1a1a26; border: 1px solid #2a2a3a;
+      border-radius: 12px; padding: 1.25rem;
+    }
+    .modal-explanation-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.65rem; text-transform: uppercase;
+      letter-spacing: 0.1em; color: #a855f7;
+      margin-bottom: 0.75rem;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .modal-explanation-text {
+      font-size: 0.88rem; line-height: 1.75;
+      color: #c8c8d8; white-space: pre-wrap;
+    }
+    .modal-loading {
+      display: flex; align-items: center; gap: 0.75rem;
+      color: #6b6b85; font-size: 0.85rem;
+      font-family: 'DM Mono', monospace;
+    }
+    .spinner {
+      width: 18px; height: 18px;
+      border: 2px solid #2a2a3a;
+      border-top-color: #a855f7;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .product-card { cursor: pointer; }
+    .product-card:hover .card-title { color: #f0e040; }
+    .click-hint {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.62rem; color: #6b6b85;
+      text-align: center; margin-top: 0.5rem;
+      letter-spacing: 0.05em;
+    }
+  </style>
+</head>
+<body>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modalOverlay" onclick="closeModalOutside(event)">
+  <div class="modal" id="modal">
+    <div class="modal-header">
+      <div class="modal-product-info">
+        <div class="modal-emoji" id="modalEmoji"></div>
+        <div class="modal-title"  id="modalTitle"></div>
+        <div class="modal-rank"   id="modalRank"></div>
+      </div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-scores" id="modalScores"></div>
+    <div class="modal-explanation">
+      <div class="modal-explanation-label">
+        ⚡ AI Ranking Explanation — Groq llama-3.3-70b
+      </div>
+      <div id="modalExplanation"></div>
+    </div>
+  </div>
+</div>
+
+<header>
+  <div class="logo">Search<span>Lab</span></div>
+  <div class="tagline">Keyword · Semantic · Hybrid</div>
+</header>
+
+<main>
+  <div class="search-panel">
+    <div class="search-box">
+      <div class="search-input-wrap">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+        </svg>
+        <input type="text" id="queryInput" placeholder="Search products... try 'comfortable running shoes'"/>
+      </div>
+      <button class="search-btn" onclick="doSearch()">Search</button>
+    </div>
+
+    <div class="mode-tabs">
+      <button class="mode-tab active" data-mode="keyword"  onclick="setMode('keyword')">
+        <span class="dot"></span> Keyword (TF-IDF)
+      </button>
+      <button class="mode-tab" data-mode="semantic" onclick="setMode('semantic')">
+        <span class="dot"></span> Semantic (Cosine)
+      </button>
+      <button class="mode-tab" data-mode="hybrid" onclick="setMode('hybrid')">
+        <span class="dot"></span> Hybrid (RRF)
+      </button>
+    </div>
+
+    <div id="statusBar" style="font-family:'DM Mono',monospace;font-size:0.72rem;color:var(--sem-color);margin-top:1rem;min-height:1rem;"></div>
+
+    <div class="suggestions">
+      <span style="font-family:'DM Mono',monospace;font-size:0.65rem;color:var(--muted);align-self:center">Try:</span>
+      <span class="suggestion-chip" onclick="setQuery('nike')">nike</span>
+      <span class="suggestion-chip" onclick="setQuery('comfortable jogging shoes')">comfortable jogging shoes</span>
+      <span class="suggestion-chip" onclick="setQuery('wireless audio')">wireless audio</span>
+      <span class="suggestion-chip" onclick="setQuery('budget laptop')">budget laptop</span>
+      <span class="suggestion-chip" onclick="setQuery('lightweight outdoor bag')">lightweight outdoor bag</span>
+      <span class="suggestion-chip" onclick="setQuery('skin care moisturizer')">skin care moisturizer</span>
+    </div>
+  </div>
+
+  <div class="legend">
+    <div class="legend-card active-kw" id="card-kw">
+      <div class="legend-label kw">Keyword Search</div>
+      <div class="legend-title">TF-IDF Scoring</div>
+      <div class="legend-desc">Exact token matches. Rare terms score higher.</div>
+      <div class="legend-formula">TF = freq(w,doc)/len(doc)
+IDF = log(N / df(w)) + 1
+score = Σ TF × IDF</div>
+    </div>
+    <div class="legend-card" id="card-sem">
+      <div class="legend-label sem">Semantic Search</div>
+      <div class="legend-title">Cosine Similarity</div>
+      <div class="legend-desc">Real 1024-dim Cohere embeddings. Meaning-based matching.</div>
+      <div class="legend-formula">sim(Q,D) = (Q·D) / (|Q|×|D|)
+vectors: Cohere embed-english-light-v3.0</div>
+    </div>
+    <div class="legend-card" id="card-hyb">
+      <div class="legend-label hyb">Hybrid Search</div>
+      <div class="legend-title">Reciprocal Rank Fusion</div>
+      <div class="legend-desc">Merges KW + Semantic rank lists. Scale-free.</div>
+      <div class="legend-formula">RRF(d) = Σ 1/(k + rank_i(d))
+k = 60 (dampening constant)</div>
+    </div>
+  </div>
+
+  <div class="results-header">
+    <div class="results-count" id="resultsCount">Type a query and press Search</div>
+  </div>
+
+  <div class="products-grid" id="productsGrid">
+    <div class="empty-state">
+      <div class="empty-state-icon">🔍</div>
+      <h3>Ready to search</h3>
+      <p>Type a query above and press Search</p>
+    </div>
+  </div>
+</main>
+
+<script>
+let currentMode    = 'keyword';
+let currentQuery   = '';
+let currentResults = [];
+
+function setMode(mode) {
+  currentMode = mode;
+  document.querySelectorAll('.mode-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.mode === mode);
+  });
+  document.getElementById('card-kw').className  = 'legend-card' + (mode==='keyword'  ? ' active-kw'  : '');
+  document.getElementById('card-sem').className = 'legend-card' + (mode==='semantic' ? ' active-sem' : '');
+  document.getElementById('card-hyb').className = 'legend-card' + (mode==='hybrid'   ? ' active-hyb' : '');
+}
+
+function setQuery(q) {
+  document.getElementById('queryInput').value = q;
+  doSearch();
+}
+
+function setStatus(msg) {
+  document.getElementById('statusBar').textContent = msg;
+}
+
+async function doSearch() {
+  const query = document.getElementById('queryInput').value.trim();
+  if (!query) return;
+
+  currentQuery = query;
+  const grid    = document.getElementById('productsGrid');
+  const countEl = document.getElementById('resultsCount');
+
+  grid.innerHTML = `
+    <div class="empty-state">
+      <div class="empty-state-icon">⏳</div>
+      <h3>Searching...</h3>
+      <p>Calling Cohere API for embeddings</p>
+    </div>`;
+  setStatus("Embedding query via Cohere...");
+
+  try {
+    const res = await fetch("http://localhost:8000/search", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ query, mode: currentMode })
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || res.statusText);
+    }
+    const data     = await res.json();
+    currentResults = data.results;
+    renderResults(currentResults, countEl, grid);
+    setStatus("✅ Done — click any product card for AI ranking explanation");
+  } catch (err) {
+    grid.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">❌</div>
+        <h3>Error</h3>
+        <p>${err.message}</p>
+      </div>`;
+    setStatus("❌ " + err.message);
+  }
+}
+
+function renderResults(results, countEl, grid) {
+  if (!results.length) {
+    grid.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">🔍</div>
+        <h3>No results found</h3>
+        <p>Try a different query or mode</p>
+      </div>`;
+    countEl.innerHTML = `Showing <span>0 results</span>`;
+    return;
+  }
+
+  const modeLabel = {keyword:'TF-IDF', semantic:'Cosine Similarity', hybrid:'RRF'}[currentMode];
+  countEl.innerHTML = `<span>${results.length} results</span> — ranked by ${modeLabel} — <span style="color:#a855f7">click any card for AI explanation</span>`;
+
+  const maxKw  = Math.max(...results.map(r => r.kw_score),  0.0001);
+  const maxSem = Math.max(...results.map(r => r.sem_score), 0.0001);
+
+  grid.innerHTML = results.map((r, i) => {
+    const kwPct  = Math.round((r.kw_score  / maxKw)  * 100);
+    const semPct = Math.round((r.sem_score / maxSem) * 100);
+    const hybPct = Math.round((r.hyb_norm  || 0)     * 100);
+    const rankClass = ['','ranked-1','ranked-2','ranked-3'][i] || '';
+
+    const kwTags = r.matched.length
+      ? `<div class="kw-tags">${r.matched.map(t => `<span class="kw-tag">${t}</span>`).join('')}</div>`
+      : '';
+
+    const rrfInfo = currentMode === 'hybrid'
+      ? `<div class="rrf-info">KW rank: #${r.kw_rank} · Sem rank: #${r.sem_rank} → RRF = ${r.hyb_score}</div>`
+      : '';
+
+    return `
+    <div class="product-card ${rankClass}" style="animation-delay:${i*0.05}s" data-index="${i}">
+      <div class="card-emoji">
+        ${i<3 ? `<div class="rank-badge">#${i+1}</div>` : ''}
+        ${r.emoji}
+      </div>
+      <div class="card-body">
+        <div class="card-category">${r.category}</div>
+        <div class="card-title">${r.title}</div>
+        <div class="card-desc">${r.desc}</div>
+        <div class="card-price">$${r.price}</div>
+        ${kwTags}
+        <div class="score-section">
+          <div class="score-row">
+            <div class="score-label kw">TF-IDF</div>
+            <div class="score-bar-bg"><div class="score-bar-fill kw" style="width:${kwPct}%"></div></div>
+            <div class="score-val">${r.kw_score}</div>
+          </div>
+          <div class="score-row">
+            <div class="score-label sem">Cosine</div>
+            <div class="score-bar-bg"><div class="score-bar-fill sem" style="width:${semPct}%"></div></div>
+            <div class="score-val">${r.sem_score}</div>
+          </div>
+          <div class="score-row">
+            <div class="score-label hyb">RRF</div>
+            <div class="score-bar-bg"><div class="score-bar-fill hyb" style="width:${hybPct}%"></div></div>
+            <div class="score-val">${r.hyb_score}</div>
+          </div>
+          ${rrfInfo}
+        </div>
+        <div class="click-hint">🤖 click for AI explanation</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Event delegation — one listener on grid
+  grid.addEventListener('click', function(e) {
+    const card = e.target.closest('.product-card');
+    if (card) {
+      const index = parseInt(card.dataset.index);
+      openModal(index);
+    }
+  });
+}
+
+async function openModal(index) {
+  const product = currentResults[index];
+  const rank    = index + 1;
+
+  document.getElementById('modalEmoji').textContent = product.emoji;
+  document.getElementById('modalTitle').textContent = product.title;
+  document.getElementById('modalRank').textContent  = `Ranked #${rank} — ${currentMode.toUpperCase()} mode`;
+
+  document.getElementById('modalScores').innerHTML = `
+    <div class="modal-score-card">
+      <div class="modal-score-label kw">TF-IDF</div>
+      <div class="modal-score-val">${product.kw_score}</div>
+      <div class="modal-score-rank">KW Rank #${product.kw_rank}</div>
+    </div>
+    <div class="modal-score-card">
+      <div class="modal-score-label sem">Cosine</div>
+      <div class="modal-score-val">${product.sem_score}</div>
+      <div class="modal-score-rank">Sem Rank #${product.sem_rank}</div>
+    </div>
+    <div class="modal-score-card">
+      <div class="modal-score-label hyb">RRF</div>
+      <div class="modal-score-val">${product.hyb_score}</div>
+      <div class="modal-score-rank">Final Rank #${rank}</div>
+    </div>`;
+
+  document.getElementById('modalExplanation').innerHTML = `
+    <div class="modal-loading">
+      <div class="spinner"></div>
+      Asking Groq llama-3.3-70b to explain this ranking...
+    </div>`;
+
+  document.getElementById('modalOverlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+
+  try {
+    const res = await fetch("http://localhost:8000/explain", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({
+        product,
+        rank,
+        query:       currentQuery,
+        mode:        currentMode,
+        all_results: currentResults
+      })
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || res.statusText);
+    }
+    const data = await res.json();
+    document.getElementById('modalExplanation').innerHTML =
+      `<div class="modal-explanation-text">${data.explanation}</div>`;
+  } catch (err) {
+    document.getElementById('modalExplanation').innerHTML =
+      `<div style="color:#ff6b35;font-size:0.85rem">❌ Error: ${err.message}</div>`;
+  }
+}
+
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+function closeModalOutside(e) {
+  if (e.target === document.getElementById('modalOverlay')) closeModal();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeModal();
+});
+
+document.getElementById('queryInput')
+  .addEventListener('keydown', e => {
+    if (e.key === 'Enter') doSearch();
+  });
+</script>
+</body>
+</html>
