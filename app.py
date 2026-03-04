@@ -102,41 +102,57 @@ def chunk_paragraph(text: str) -> list[str]:
     return chunks if chunks else [text]
 
 
-def chunk_semantic(text: str, min_chunk_sentences: int = 3, overlap_keyword_threshold: int = 2) -> list[str]:
+def chunk_semantic(text: str, min_chunk_sentences: int = 3, overlap_keyword_threshold: int = 2,
+                   keyword_window: int = 3) -> list[str]:
     """
     Detect topic shifts using MEANINGFUL word overlap (stop words excluded).
-    
+
+    BUG FIX — sliding keyword window:
+      Previously `topic_keywords` accumulated ALL words from every sentence in
+      the current chunk, so after a few sentences the set covered every topic
+      ever mentioned and a genuine topic shift could never be detected (the
+      overlap was always ≥ threshold).  Now we compare the incoming sentence
+      against only the keywords from the last `keyword_window` sentences,
+      giving a true local-context comparison.
+
     FIX 1: Stop words are filtered before comparing keyword sets.
     FIX 2: A minimum of `min_chunk_sentences` sentences is enforced before
             a boundary can be triggered — prevents over-splitting on short text.
-    FIX 3: Overlap threshold raised: need < 2 meaningful shared words to split
-            (same value, but now the words actually mean something).
+    FIX 3: Keyword window (default 3) keeps the topic signal local and fresh.
     """
     sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text.strip()) if s.strip()]
-    chunks, current_chunk, topic_keywords = [], [], set()
+    chunks = []
+    current_chunk: list[str] = []
+    # Rolling buffer: store meaningful words for the last `keyword_window` sentences
+    recent_words: list[set] = []
 
     for sentence in sentences:
         words = meaningful_words(sentence)
-        overlap = len(words & topic_keywords)
+
+        # Build the local topic context from the recent window
+        window_keywords: set = set().union(*recent_words) if recent_words else set()
+        overlap = len(words & window_keywords)
 
         should_split = (
             len(current_chunk) >= min_chunk_sentences and   # min sentences met
-            topic_keywords and                               # have established a topic
-            overlap < overlap_keyword_threshold             # genuine topic shift
+            window_keywords and                              # have established a topic
+            bool(words) and                                  # skip split if sentence has no meaningful words (all stop words)
+            overlap < overlap_keyword_threshold              # genuine topic shift
         )
 
         if should_split:
             combined = " ".join(current_chunk)
-            # Sub-chunk if too large
             if len(combined) > MAX_CHUNK_CHARS:
                 chunks.extend(chunk_fixed_size(combined, chunk_size=MAX_CHUNK_CHARS, overlap=80))
             else:
                 chunks.append(combined)
             current_chunk = [sentence]
-            topic_keywords = words
+            recent_words = [words]          # reset window to the new opening sentence
         else:
             current_chunk.append(sentence)
-            topic_keywords.update(words)
+            recent_words.append(words)
+            if len(recent_words) > keyword_window:
+                recent_words.pop(0)         # slide the window forward
 
     if current_chunk:
         combined = " ".join(current_chunk)
@@ -178,7 +194,11 @@ def get_best_chunks(chunks: list[str], question: str, max_chars: int = 3000) -> 
         chunk_words = meaningful_words(chunk)
         raw_overlap = len(chunk_words & q_words)
         # Normalise: overlap per 100 meaningful words in chunk (avoid length bias)
-        norm_score = raw_overlap / (max(len(chunk_words), 1) / 100)
+        # BUG FIX: old formula  raw_overlap / (chunk_size / 100)  gave LARGER
+        # chunks a LOWER score (dividing by bigger denominator) — the opposite
+        # of what we want. Correct normalisation: fraction of question keywords
+        # covered by this chunk, scaled 0–100.
+        norm_score = (raw_overlap / max(len(q_words), 1)) * 100
         scored.append((norm_score, raw_overlap, chunk))
 
     # Sort by normalised score desc, then raw overlap desc
@@ -293,7 +313,10 @@ def score_answer(answer: str, question: str, context: str) -> float:
 
     # 3. Specificity: numbers, capitalised words (named entities), quoted phrases
     numbers      = len(re.findall(r'\b\d+[\d,\.%]*\b', answer))
-    proper_nouns = len(re.findall(r'\b[A-Z][a-z]{2,}\b', answer))
+    # FIX 3: exclude sentence-starting capitals (after . ! ?) — they are NOT proper nouns,
+    # just normal capitalisation. Only count capitalised words that appear mid-sentence.
+    mid_sentence = re.sub(r'(?<=[.!?])\s+[A-Z]', lambda m: m.group().lower(), answer)
+    proper_nouns = len(re.findall(r'\b[A-Z][a-z]{2,}\b', mid_sentence))
     quotes       = len(re.findall(r'"[^"]{5,}"', answer))
     specificity  = min((numbers * 0.4 + proper_nouns * 0.2 + quotes * 0.5), 2.0)
 
@@ -321,8 +344,8 @@ def score_answer(answer: str, question: str, context: str) -> float:
 def extract_text(pdf_file) -> str:
     if pdf_file is None:
         return ""
-    doc = fitz.open(pdf_file.name)
-    return "\n".join(page.get_text() for page in doc)
+    with fitz.open(pdf_file.name) as doc:   # FIX 1: context manager ensures file handle is always closed
+        return "\n".join(page.get_text() for page in doc)
 
 
 def call_llm(prompt: str, retries: int = 3, base_delay: int = 3) -> str:
@@ -361,8 +384,10 @@ def call_llm_sequential(prompts: list[str], inter_call_delay: float = 1.5) -> li
 def generate_questions(pdf_file):
     if pdf_file is None:
         return gr.Dropdown(choices=[], label="📋 Select a question", interactive=True)
-    text = extract_text(pdf_file)[:3000]
     try:
+        text = extract_text(pdf_file)[:3000]   # FIX 2: moved inside try so corrupt PDFs are caught cleanly
+        if not text.strip():
+            return gr.Dropdown(choices=["Error: Could not extract text from PDF"], interactive=True)
         response = client.chat.completions.create(
             model=MODEL,
             messages=[{
@@ -395,13 +420,13 @@ def generate_questions(pdf_file):
 def analyze(pdf_file, dropdown_q, custom_q):
     question = custom_q.strip() if custom_q.strip() else (dropdown_q or "")
     if not question:
-        return ["⚠️ Please select or type a question first."] * 8
+        return ["⚠️ Please select or type a question first."] * 8, ""
     if pdf_file is None:
-        return ["⚠️ Please upload a PDF first."] * 8
+        return ["⚠️ Please upload a PDF first."] * 8, ""
 
     full_text = extract_text(pdf_file)
     if not full_text.strip():
-        return ["⚠️ Could not extract text from this PDF."] * 8
+        return ["⚠️ Could not extract text from this PDF."] * 8, ""
 
     # For prompting techniques: use first 3500 chars (same content, different framing)
     plain = full_text[:3500]
@@ -431,7 +456,15 @@ def analyze(pdf_file, dropdown_q, custom_q):
     ]
 
     results = call_llm_sequential(prompts, inter_call_delay=1.5)
-    return results
+    return results, plain   # FIX 4: return plain text so analyze_and_compare doesn't read PDF again
+
+
+def analyze_and_compare(pdf_file, dropdown_q, custom_q):
+    question = custom_q.strip() if custom_q.strip() else (dropdown_q or "")
+    results, context = analyze(pdf_file, dropdown_q, custom_q)   # FIX 4: reuse extracted text, no second PDF read
+
+    table_html = build_comparison_table(results, question, context)
+    return results + [table_html]
 
 
 # ─────────────────────────────────────────────
@@ -502,19 +535,6 @@ def build_comparison_table(answers: list[str], question: str, context: str) -> s
       </p>
     </div>"""
     return html
-
-
-def analyze_and_compare(pdf_file, dropdown_q, custom_q):
-    question = custom_q.strip() if custom_q.strip() else (dropdown_q or "")
-    results  = analyze(pdf_file, dropdown_q, custom_q)
-
-    # Pass question + context into scorer so it can do meaningful comparison
-    context = ""
-    if pdf_file is not None:
-        context = extract_text(pdf_file)[:3500]
-
-    table_html = build_comparison_table(results, question, context)
-    return results + [table_html]
 
 
 # ─────────────────────────────────────────────
