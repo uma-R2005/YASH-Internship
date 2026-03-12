@@ -169,8 +169,4 @@ BitsAndBytesConfig(
 
 ---
 
-Here's a clean 2-3 line summary you can use anywhere:
-
----
-
 This project fine-tunes DistilBERT using LoRA and QLoRA techniques to classify text into 6 emotions — sadness, joy, love, anger, fear, and surprise. The detected emotion is mapped to a mental health risk level with actionable remedies and crisis support. A Streamlit web app allows users to run predictions using either or both models side by side with real-time confidence scores.
