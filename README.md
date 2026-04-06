@@ -176,4 +176,3 @@ Once the tool finishes executing, the result is wrapped as plain text and sent b
 **Step 5 — You see the answer**
 MCP Inspector displays the final result — for example, *"Hyderabad: 34°C, Clear sky."*
 
--
