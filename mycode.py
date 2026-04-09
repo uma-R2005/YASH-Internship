@@ -7,3 +7,6 @@ def is_prime(n: int) -> bool:
         if n % i == 0:
             return False
     return True
+def square(n: int) -> int:
+     return n * n
+
