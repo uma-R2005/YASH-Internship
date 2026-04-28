@@ -1,0 +1,23 @@
+validator.js
+  4c4d131868b6fe7e 26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "2323a294044db513ffd7b2cf7cd4a9b638ae8b75",
+  "prompts": {
+    "4c4d131868b6fe7e": {
+      "agent_id": {
+        "tool": "mock_ai",
+        "id": "ai-thread-1777379791372890000",
+        "model": "unknown"
+      },
+      "human_author": "Test Intern",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 0,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}
